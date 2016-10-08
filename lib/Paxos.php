@@ -8,7 +8,9 @@
  */
 abstract class  Paxos
 {
-    const REQUEST_CLI = 1, REQUEST_ACCEPTOR_AGREE = 2, REQUEST_ACCEPTOR_REFUSE = 3, REQUEST_CONFIRM = 4, REQUEST_CONFIRM_AGREE = 5, REQUEST_CONFIRM_REFUSE = 6;
+    const REQUEST_CLI = 1, REQUEST_ACCEPTOR_AGREE = 2, REQUEST_ACCEPTOR_REFUSE = 3;
+    const REQUEST_CONFIRM = 4, REQUEST_CONFIRM_AGREE = 5, REQUEST_CONFIRM_REFUSE = 6;
+    const REQUEST_KEEP_ALIVE = 9;
     const EOF = "\r\n\r\n";
 
     abstract function onConnect($serv, $fd);

@@ -1,5 +1,6 @@
 <?php
 require 'Paxos.php';
+
 class Job extends Paxos
 {
     public $server;
@@ -15,13 +16,7 @@ class Job extends Paxos
         }
         //批量链接Accptor
         foreach ($config['acceptors'] as $ip) {
-            $client = new swoole_client(SWOOLE_SOCK_TCP);
-            $ip = explode(':', $ip);
-            if (!$client->connect($ip[0], $ip[1], -1)) {
-                exit("connect failed. Error: {$client->errCode}\n");
-            } else {
-                $this->acceptors[] = $client;
-            }
+            $this->connectAccept($ip);
         }
         $this->server->set($config['swoole']);
         return $this->server;
@@ -30,6 +25,39 @@ class Job extends Paxos
     function onConnect($serv, $fd)
     {
         echo "[#" . posix_getpid() . "]\tClient:Connect.\n";
+    }
+
+    function onWorkerStart(swoole_server $serv, $worker_id)
+    {
+        //每1秒钟检查所有acceptor是否存活
+        $serv->tick(1000, function ($id) {
+            foreach ($this->acceptors as $key => $acceptor) {
+                if ($acceptor->isConnected()) {
+                    $message = $this->doPack(time(), 0, self::REQUEST_KEEP_ALIVE, 0);
+                    if ($acceptor->send($message . "\r\n\r\n")) {
+                        //链接存活中
+                    } else {
+                        $this->connectAccept($key);
+                    }
+                } else {
+                    //重连Acceptor
+                    $this->connectAccept($key);
+                }
+            }
+        });
+    }
+
+    private function connectAccept($ip)
+    {
+        //重连Acceptor
+        $client = new swoole_client(SWOOLE_SOCK_TCP);
+        $ipList = explode(':', $ip);
+        if (!$client->connect($ipList[0], $ipList[1], -1)) {
+            //可以添加报警
+            var_dump("connect failed. Error: {$client->errCode}\n");
+        } else {
+            $this->acceptors[$ip] = $client;
+        }
     }
 
     function onReceive(swoole_server $serv, $fd, $from_id, $data)
@@ -45,9 +73,7 @@ class Job extends Paxos
                 //调用proposer提议
                 if ($this->propose($header_prepare, $body)) {
                     //选主成功写日志
-                    var_dump($this->max_id);
-                    $header_confirm = $this->doPack($header['time'], $header['ip'], self::REQUEST_CONFIRM,
-                        $this->max_id + 1);
+                    $header_confirm = $this->doPack($header['time'], $header['ip'], self::REQUEST_CONFIRM, $this->max_id + 1);
                     //选主成功后写日志
                     if ($this->propose($header_confirm, $body)) {
                         //学习所有相差的日志
@@ -108,6 +134,7 @@ class Job extends Paxos
 
     function start()
     {
+        $this->server->on('WorkerStart', array($this, 'onWorkerStart'));
         $this->server->on('Connect', array($this, 'onConnect'));
         $this->server->on('Receive', array($this, 'onReceive'));
         $this->server->on('Close', array($this, 'onClose'));
